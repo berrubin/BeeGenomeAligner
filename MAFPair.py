@@ -1,6 +1,8 @@
 import sys
 import utils
 
+FILL_CHAR ="N"
+
 class MAFPair:
     def __init__(self, species1, maf1, species2, maf2):
         self.species1 = species1
@@ -9,6 +11,66 @@ class MAFPair:
         self.maf2 = maf2
         self.distances = []
         self.framed_distances = []
+        self.mafothers = []
+
+    def other_merge(self, new_other):
+        merged = False
+#        if len(self.mafothers) > 0:
+#            print "OTHERLIST"
+#            for other in self.mafothers:
+#                print other
+        for other in self.mafothers:
+            if other.species == new_other.species and other.scaf == new_other.scaf and other.strand == new_other.strand:
+#                print "OTHER"
+#                print self.maf1
+#                print self.maf2
+#                print other
+#                print new_other
+                if new_other.start == other.start and new_other.end == other.end:
+                    return
+                #my instinct is that all of these gaps should be N's to help correctly justify the alignments. however, FSA doesn't align N's with other stuff so that doesn't work at all.
+#                print new_other
+#                print other
+                if new_other.strand == "+":
+                    if new_other.start >= other.end:
+                        position = len(new_other.seq) - len(new_other.seq.lstrip("N"))
+                        new_seq = other.seq + FILL_CHAR*(position - other.end) + new_other.seq.lstrip("N")
+                        new_other_seq = other.other_seq + FILL_CHAR*(position - other.other_end) + new_other.other_seq.lstrip("N")
+                        other.end = new_other.end
+                        other.other_end = new_other.other_end
+                    elif other.start >= new_other.end:
+                        position = len(other.seq) - len(other.seq.lstrip("N"))
+                        new_seq = new_other.seq + FILL_CHAR*(position - new_other.end) + other.seq.lstrip("N")
+                        new_other_seq = new_other.other_seq + FILL_CHAR*(position - new_other.other_end) + other.other_seq.lstrip("N")
+                        other.start = new_other.start
+                        other.other_start = new_other.other_start
+                    elif new_other.start > other.start and new_other.end < other.end:
+                        new_seq = other.seq[:new_other.start] + new_other.seq + other.seq[new_other.end:]
+                        new_other_seq = other.other_seq[:new_other.other_start] + new_other.other_seq + other.other_seq[new_other.other_end:]
+                else:
+                    if new_other.start >= other.end:
+                        position = len(new_other.seq) - len(new_other.seq.lstrip("N"))
+                        new_seq = other.seq + FILL_CHAR*(position - other.end) + new_other.seq.lstrip("N")
+                        new_other_seq = other.other_seq + FILL_CHAR*(position - other.other_end) + new_other.other_seq.lstrip("N")
+                        other.end = new_other.end
+                        other.other_end = new_other.other_end
+                    elif other.start >= new_other.end:
+                        position = len(other.seq) - len(other.seq.lstrip("N"))
+                        new_seq = new_other.seq + FILL_CHAR*(position - new_other.end) + other.seq.lstrip("N")
+                        new_other_seq = new_other.other_seq + FILL_CHAR*(position - new_other.other_end) + other.other_seq.lstrip("N")
+                        other.start = new_other.start
+                        other.other_start = new_other.other_start
+                    elif new_other.start > other.start and new_other.end < other.end:
+                        new_seq = other.seq[:new_other.start] + new_other.seq + other.seq[new_other.end:]
+                        new_other_seq = other.other_seq[:new_other.other_start] + new_other.other_seq + other.other_seq[new_other.other_end:]
+                    
+                other.seq = new_seq
+                other.other_seq = new_other_seq
+                merged = True
+                break
+        if not merged:
+            self.mafothers.append(new_other)
+                
 
     def get_maf(self, species):
         if species == self.species1:
@@ -16,7 +78,8 @@ class MAFPair:
         elif species == self.species2:
             return self.maf2
         else:
-            return False
+            return self.maf2
+#            return False
     
     def replace_maf(self, species, new_maf):
         if self.species1 == species:
