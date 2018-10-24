@@ -188,7 +188,7 @@ class Gene:
                 return ("three_utr", -9)
             elif self.strand == "+":
                 if target_coord <= self.start:
-                    if target_coord >= self.start - 1500:
+                    if target_coord >= self.start - options.promoter_size:
                         return ("promoter", self.start - target_coord)
                     else:
                         return ("upstream", self.start - target_coord)
@@ -196,7 +196,7 @@ class Gene:
                     return ("downstream", target_coord - self.end)
             elif self.strand == "-":
                 if target_coord >= self.end:
-                    if target_coord <= self.end + 1500:
+                    if target_coord <= self.end + options.promoter_size:
                         return ("promoter", target_coord - self.end)
                     else:
                         return ("upstream", target_coord - self.end)
