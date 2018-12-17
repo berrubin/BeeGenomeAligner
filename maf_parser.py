@@ -23,6 +23,7 @@ parser.add_option("-m", "--min_taxa", dest = "min_taxa", type = "int", default =
 parser.add_option("-c", "--constraint_tree", dest = "constraint_tree", type = "str")
 parser.add_option("-o", "--output_dir", dest = "output_dir", type = "str")
 parser.add_option("-p", "--num_threads", dest = "num_threads", type = "int", default = 1)
+parser.add_option("-k", "--target_scafs", dest = "target_scafs", type = "str", default = "/Genomics/kocherlab/berubin/alignment/10bees/genomes/AMEL_all_scafs.txt")
 
 (options, args) = parser.parse_args()
 outspecies_list = options.outspecies.split(",")
@@ -32,7 +33,7 @@ def main():
         os.mkdir(options.output_dir)
     pairs_dic = {}
     in_masked = False
-    pairs_dic = utils.read_mafs_overlord(options.output_dir, options.num_threads, outspecies_list, options.maf_dir, options.inspecies, options.gff_dir)
+    pairs_dic = utils.read_mafs_overlord(options.output_dir, options.num_threads, outspecies_list, options.maf_dir, options.inspecies, options.gff_dir, options.target_scafs)
     nearest_dic = pairs_dic[outspecies_list[0]]
 #     for outspecies in outspecies_list:
 #         maf_file = "%s/%s.%s.sing.maf" % (options.maf_dir, options.inspecies, outspecies)
@@ -100,9 +101,11 @@ def main():
         print "write to file"
         maf_list = utils.filter_small_mafs(maf_list, options.min_taxa)        
 
-        utils.write_mafs_to_file(maf_list, options.output_dir, options.inspecies, outspecies_list[0])
+#uncomment to run from beginning
+#        utils.write_mafs_to_file(maf_list, options.output_dir, options.inspecies, outspecies_list[0])
         new_maf_scaf_dic[scaf] = maf_list
-#    utils.blast_filter(new_maf_scaf_dic, options.output_dir, options.inspecies, outspecies_list[0], options.num_threads)
+###    utils.blast_filter(new_maf_scaf_dic, options.output_dir, options.inspecies, outspecies_list[0], options.num_threads)
+#uncomment to run from beginning
 #    utils.realign_fsa(new_maf_scaf_dic, options.output_dir, options.inspecies, outspecies_list[0], options.num_threads)
     utils.slide_baby_slide(new_maf_scaf_dic, options.output_dir, options.inspecies, outspecies_list[0], options.window_size, options.step_size, options.min_taxa, options.constraint_tree, options.num_threads)
         

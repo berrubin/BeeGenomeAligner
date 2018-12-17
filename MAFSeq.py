@@ -6,6 +6,7 @@ class MAFSeq:
         self.strand = strand
         self.orig_len = orig_len
         self.seq = seq
+        self.realigned_seq = ""
         self.scaf_len = scaf_len
         self.start = start
         self.end = end

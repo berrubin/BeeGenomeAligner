@@ -1,3 +1,4 @@
+import sys
 from Bio.Phylo.PAML import baseml
 import multiprocessing
 from multiprocessing import Pool
@@ -15,12 +16,16 @@ INTRON_SIZE = 500
 FILL_CHAR = "N"
 largest_scafs = ["Group11.18", "Group9.10", "Group15.19", "Group2.19", "Group12.13", "Group12.17", "Group5.14", "Group10.26", "Group3.9", "Group4.13"]
 
-def read_mafs_overlord(base_dir, num_threads, outspecies_list, maf_dir, inspecies, gff_dir):
+def read_mafs_overlord(base_dir, num_threads, outspecies_list, maf_dir, inspecies, gff_dir, target_scafs):
+    scaf_list = []
+    reader = open(target_scafs, 'rU')
+    for line in reader:
+        scaf_list.append(line.strip())
     pool = multiprocessing.Pool(processes = num_threads)
     work_list = []
     for outspecies in outspecies_list:
         maf_file = "%s/%s.%s.sing.maf" % (maf_dir, inspecies, outspecies)
-        work_list.append([maf_file, inspecies, outspecies, gff_dir])
+        work_list.append([maf_file, inspecies, outspecies, gff_dir, scaf_list])
     maf_dic_list = pool.map_async(read_mafs_worker, work_list).get(99999999)
     pairs_dic = {}
     for x in range(len(outspecies_list)):
@@ -38,14 +43,19 @@ def read_mafs_worker(param_list):
     inspecies = param_list[1]
     outspecies = param_list[2]
     gff_dir = param_list[3]
+    scaf_list = param_list[4]
     maf_list = read_maf(maf_file, inspecies, outspecies)
 #    for maf in maf_list:
-#        if maf.maf1.scaf == "Group6.37":
+#        if maf.maf1.scaf == "Group7.3":
 #            print maf
     maf_dic = mafs_by_scaf(maf_list, inspecies)
     maf_dic = only_syntenic(maf_dic, outspecies)
     processed_maf_dic = {}
     for scaf, maf_list in maf_dic.items():
+#        if scaf not in ["Group7.3"]:
+#            continue
+        if scaf not in scaf_list:
+            continue
 #        if scaf not in largest_scafs: # "Group11.18": #largest_scafs: #"Group6.37":# and scaf != "Group10.1":
 #            continue
         print scaf
@@ -349,7 +359,7 @@ def read_maf(inmaf, inspecies, outspecies):
             if seq_count > 0:
 #                print seq1.species
 #                print seq2.species
-#                if seq1.start > 1000000 or seq1.start < 950000:
+#                if seq1.start > 2000000 or seq1.start < 1000000:
 #                    seq_count = 0
 #                    continue
                 if cur_score > 1000:
@@ -395,7 +405,7 @@ def restrict_region(in_maf_list, inspecies):
     new_maf_list = []
     for in_maf in in_maf_list:
         target = in_maf.get_maf(inspecies)
-        if target.start > 70000 and target.start < 90000:
+        if target.start > 998000 and target.start < 1000000:
             new_maf_list.append(in_maf)
     return new_maf_list
 
@@ -538,28 +548,41 @@ def mask_proteins(maf_list, species, gff_file):
         if target_maf.scaf in cds_dic.keys():
             for cds in cds_dic[target_maf.scaf]:
 #                print cds
-                if target_maf.strand == "+":
-                    if cds[0] > target_maf.start and cds[0] < target_maf.end:
-                        #                    print cds
-                        start_coord = liftover(cds[0] - target_maf.start, target_maf.seq, cds[0] - target_maf.start)
-                        end_coord = liftover(cds[1] - target_maf.start, target_maf.seq, start_coord)
-#                        if target_maf.start == 4623570:
-#                            print end_coord
-                        if end_coord >= seq_len:
-                            end_coord = seq_len -1
-#                    print start_coord
-                        insert_seq = target_maf.seq[start_coord:end_coord+1].upper()
-#                        if target_maf.start == 4623570:
-#                            print insert_seq
-
+#                if cds[0] != 188771:
+#                    continue
+                if target_maf.strand == "+" or target_maf.strand == "-":
+#                    if cds[0] > target_maf.start and cds[0] < target_maf.end:
+                    if cds[1] > target_maf.start and cds[0] < target_maf.end:
+#                        print cds
+#                        print target_maf
+                        if cds[0] > target_maf.start:
+                            start_coord = liftover(cds[0] - target_maf.start, target_maf.seq, cds[0] - target_maf.start)
+                        elif cds[0] <= target_maf.start:
+                            start_coord = 1
+                        if cds[1] < target_maf.end:
+                            end_coord = liftover(cds[1] - target_maf.start, target_maf.seq, start_coord)
+                        elif cds[1] >= target_maf.end:
+                            end_coord = seq_len - 1
+#                        print start_coord
+#                        print end_coord
+#                        if end_coord >= seq_len:
+#                            end_coord = seq_len -1
+                        insert_seq = target_maf.seq[start_coord-1:end_coord].upper()
                         insert_seq = insert_seq.replace("A", "a").replace("C", "c").replace("T", "t").replace("G","g")
-#                        if target_maf.start == 4623570:
-#                            print insert_seq
-
-
+#                        print insert_seq
 #                        insert_seq = "N" * (end_coord - start_coord + 1)
+#                        print target_maf.seq[:start_coord-1]
+#                        print target_maf.seq[end_coord:]
                         target_maf.seq = target_maf.seq[:start_coord-1] + insert_seq + target_maf.seq[end_coord:]
-                elif target_maf.strand == "-":
+                        if len(target_maf.seq) != seq_len:
+                            print "DISASTER"
+                            print target_maf
+                            print mafpair
+                            print target_maf.seq
+                            print mafpair.maf1.seq
+                            sys.exit()
+#                        print target_maf.seq
+                elif target_maf.strand == "0":
                     start_coord = (target_maf.scaf_len - cds[1]) - (target_maf.scaf_len - target_maf.end)
                     end_coord = (target_maf.scaf_len - cds[0]) - (target_maf.scaf_len - target_maf.end)
 #                    print cds
@@ -567,8 +590,10 @@ def mask_proteins(maf_list, species, gff_file):
 #                    print end_coord
 #                    if start_coord < 0 or end_coord < 0:
 #                        sys.exit()
-                    if cds[0] > target_maf.start and cds[0] < target_maf.end:
+                    if cds[1] > target_maf.start and cds[0] < target_maf.end:
                         #                    print cds
+                        print start_coord
+                        print end_coord
                         start_coord = liftover(start_coord, target_maf.seq, start_coord)
                         end_coord = liftover(end_coord, target_maf.seq, start_coord)
 #                    print start_coord
@@ -583,11 +608,23 @@ def mask_proteins(maf_list, species, gff_file):
 #                            if target_maf.seq[x] == "-":
 #                                insert_seq[x - start_coord] = "-"
                         target_maf.seq = target_maf.seq[:start_coord] + insert_seq + target_maf.seq[end_coord+1:]
+                        if len(target_maf.seq) != seq_len:
+                            print "DISASTER"
+                            print target_maf
+                            print mafpair
+                            print target_maf.seq
+                            print mafpair.maf1.seq
+                            print start_coord
+                            print end_coord
+                            print insert_seq
+                            sys.exit()
+
 
 #                else:
 #                        start
 #                print target_maf.seq
 #        mafpair.replace_maf(species, target_maf)
+#        print mafpair
     return maf_list
             
 
@@ -630,10 +667,15 @@ def write_mafs_to_file(maf_list, outdir, inspecies, outspecies):
 #        if not out_maf:
 #            out_maf = maf.mafothers[0]
         outfile = open("%s/maf_files/%s_%s_%s_%s_%s_%s.fa" % (outdir, target_maf.scaf, target_maf.start, target_maf.end, out_maf.scaf, out_maf.start, out_maf.end), 'w')
-        outfile.write(">%s:%s:%s:%s\n%s\n" % (inspecies, target_maf.scaf, target_maf.start, target_maf.end, target_maf.seq.replace("N", "").replace("-", "-").swapcase()))
-        outfile.write(">%s:%s:%s:%s\n%s\n" % (outspecies, out_maf.scaf, out_maf.start, out_maf.end, out_maf.seq.replace("N", "").replace("-", "").swapcase()))
+#        outfile.write(">%s:%s:%s:%s\n%s\n" % (inspecies, target_maf.scaf, target_maf.start, target_maf.end, target_maf.seq.replace("N", "").replace("-", "-").swapcase()))
+        outfile.write(">%s:%s:%s:%s\n%s\n" % (inspecies, target_maf.scaf, target_maf.start, target_maf.end, target_maf.seq.replace("-", "-").swapcase()))
+#        outfile.write(">%s:%s:%s:%s\n%s\n" % (outspecies, out_maf.scaf, out_maf.start, out_maf.end, out_maf.seq.replace("N", "").replace("-", "").swapcase()))
+        outfile.write(">%s:%s:%s:%s\n%s\n" % (outspecies, out_maf.scaf, out_maf.start, out_maf.end, out_maf.seq.replace("-", "").swapcase()))
         for other_maf in maf.mafothers:
             outfile.write(">%s:%s:%s:%s\n%s\n" % (other_maf.species, other_maf.scaf, other_maf.start, other_maf.end, other_maf.seq.replace("N", "").replace("-", "").swapcase()))
+#            if other_maf.species == "CCAL":
+#                print other_maf
+#                print other_maf.seq
         outfile.close()
 
 def blast_pair(reference, query, name, query_name):
@@ -667,6 +709,9 @@ def filter_small_mafs(maf_list, min_taxa):
         if len(maf.mafothers) < min_taxa - 2:
             continue
         for other_maf in maf.mafothers:
+#            if other_maf.species == "CCAL":
+#                print other_maf
+#                print other_maf.seq
             if other_maf.species not in species_list:
                 tuple_dic[other_maf.species] = (other_maf.other_start, other_maf.other_end)
                 species_list.append(other_maf.species)
@@ -806,6 +851,17 @@ def realign_fsa(maf_scaf_dic, outdir, inspecies, outspecies, num_threads):
             out_maf = maf.get_maf(outspecies)
             infile = "%s/maf_files/%s_%s_%s_%s_%s_%s.fa" % (outdir, target_maf.scaf, target_maf.start, target_maf.end, out_maf.scaf, out_maf.start, out_maf.end)
             outfile = "%s/maf_files/%s_%s_%s_%s_%s_%s.afa" % (outdir, target_maf.scaf, target_maf.start, target_maf.end, out_maf.scaf, out_maf.start, out_maf.end)
+            if os.path.exists(outfile):
+                num_needed = 0
+                reader = SeqIO.parse(infile, format = 'fasta')
+                for rec in reader:
+                    num_needed += 1
+                counter = 0
+                reader = SeqIO.parse(outfile, format = 'fasta')
+                for rec in reader:
+                    counter += 1
+                if counter == num_needed:
+                    continue
             work_list.append([infile, outfile])
     pool.map_async(realign_fsa_worker, work_list).get(99999999)
 
@@ -837,18 +893,36 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
     work_list = []
     for scaf, maf_list in maf_scaf_dic.items():
         for maf in maf_list:
-            work_list.append([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
+            target_maf = maf.get_maf(inspecies)
+            out_maf = maf.get_maf(outspecies)
+            infile = "%s/maf_files/%s_%s_%s_%s_%s_%s.afa" % (outdir, target_maf.scaf, target_maf.start, target_maf.end, out_maf.scaf, out_maf.start, out_maf.end)
+            if os.path.exists(infile):
+                if countseqs(infile) > 0:
+                    work_list.append([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
+#            slide_baby_slide_worker([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
     blens = pool.map_async(slide_baby_slide_worker, work_list).get(99999999)
-    print blens
+#    print blens
     print len(blens)
     print len(maf_list)
-    outfile = open("%s/compiled_blens.txt" % outdir, 'w')
+    outfile = open("%s/compiled_blens_all.txt" % outdir, 'w')
     for locus_dic in blens:
         for maf, blens_dic in locus_dic.items():
             for windex, treestr in blens_dic.items():
                 if treestr == None:
                     continue
-                cur_locus = "%s_%s_%s_%s" % (maf.scaf, maf.start, maf.end, windex)
+                if inspecies not in treestr:
+                    continue
+                real_space_coord = windex - maf.realigned_seq[0:windex].count("-")
+                windex_seq = maf.realigned_seq[windex:windex+500].replace("N","n")
+                if windex_seq.startswith("n") or windex_seq.lstrip("-").startswith("n"):
+                    n_count = len(windex_seq) - len(windex_seq.replace("-", "n").lstrip("n"))
+                    real_space_coord = real_space_coord + n_count
+#                if maf.start == 55984:
+#                    print maf
+#                    print maf.seq
+#                    print windex
+#                    print real_space_coord
+                cur_locus = "%s_%s_%s_%s_%s_%s" % (maf.scaf, maf.start, maf.end, windex, real_space_coord, maf.strand)
                 outfile.write("%s\t%s\n" % (cur_locus, treestr))
     outfile.close()
     # for x in range(len(blens)):
@@ -860,7 +934,14 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
     #             continue
     #         outfile.write("%s_%s\t%s\n" % (maf_str, windex, tree_str))
     # outfile.close()
-    
+
+def countseqs(fasta_file):
+    counter = 0
+    reader = SeqIO.parse(fasta_file, format = 'fasta')
+    for rec in reader:
+        counter += 1
+    return counter
+
 def slide_baby_slide_worker(param_list):
     mymaf = param_list[0]
     outdir = param_list[1]
@@ -872,8 +953,16 @@ def slide_baby_slide_worker(param_list):
     constraint_tree = param_list[7]
     target_maf = mymaf.get_maf(inspecies)
     out_maf = mymaf.get_maf(outspecies)
+#    print param_list
+#    print target_maf
     infile = "%s/maf_files/%s_%s_%s_%s_%s_%s.afa" % (outdir, target_maf.scaf, target_maf.start, target_maf.end, out_maf.scaf, out_maf.start, out_maf.end)
     reader = SeqIO.parse(infile, format = 'fasta')
+#    seq_count = 0
+#    for rec in reader:
+#        seq_count += 1
+#    if seq_count == 0:
+#        return {}
+#    reader = SeqIO.parse(infile, format = 'fasta')
     seq_dic ={}
     blens_dic = {}
     seq_len = 0
@@ -881,6 +970,10 @@ def slide_baby_slide_worker(param_list):
         seq_dic[rec.id] = str(rec.seq).swapcase()
         seq_dic[rec.id] = seq_dic[rec.id].replace("g", "n").replace("c", "n").replace("t", "n").replace("a", "n")
         seq_len = len(rec.seq)
+#        print rec.id
+#        print inspecies
+        if rec.id[0:4] == inspecies:
+            realigned_ref = seq_dic[rec.id]
     x = 0
     while x < seq_len:
         cur_dic = {}
@@ -894,6 +987,7 @@ def slide_baby_slide_worker(param_list):
             cur_blens = aaml_blengths(cur_dic, outdir, infile.split(".afa")[0].split("/")[-1], x, window_size, min_taxa, constraint_tree)
             blens_dic[x] = cur_blens
         x = x + window_step
+    target_maf.realigned_seq = realigned_ref
     return {target_maf : blens_dic}
 
         
@@ -1076,7 +1170,6 @@ def add_species_to_maf(inspecies, newspecies, old_maf_list, new_maf_list):
     for new_maf in new_maf_list:
         
         added = False
-#        print new_maf
         if not new_maf:
             sys.exit()
         for old_maf in old_maf_list:
@@ -1086,6 +1179,11 @@ def add_species_to_maf(inspecies, newspecies, old_maf_list, new_maf_list):
             old_end = old_maf.maf1.end
             new_start_lift = 0
             new_end_lift = len(new_maf.maf1.seq)
+#            if new_maf.maf2.species == "CCAL" and new_maf.maf2.start == 779360:
+#                print new_maf
+#                print old_maf
+#                print new_maf.maf2.seq
+
             if new_start >= old_start and new_start < old_end:
 #                new_start_lift = old_maf.maf1.seq[: 
                 new_start_lift = liftover(new_start - old_start, new_maf.maf1.seq, 0)
@@ -1147,6 +1245,12 @@ def add_species_to_maf(inspecies, newspecies, old_maf_list, new_maf_list):
 
                 new_start_coord = maf2.start + new_start_lift - maf2.seq[:new_start_lift].count("-")
                 new_end_coord = maf2.start + new_end_lift - maf2.seq[:new_end_lift].count("-")
+#                if maf2.start == 779360:
+#                    print new_start_lift
+#                    print new_end_lift
+#                    print len(maf2.seq)
+#                    print len(new_maf.maf1.seq)
+#                    print new_maf.maf1.seq
                 if old_maf.maf1.strand == new_maf.maf1.strand:
 #                    merged_maf = MAFSeq(maf2.species, maf2.scaf, new_start_coord, maf2.orig_len, maf2.seq[new_start_lift:new_end_lift], maf2.strand, maf2.scaf_len, new_end_coord, new_maf.maf1.start, new_maf.maf1.end)
                     merged_maf = MAFSeq(maf2.species, maf2.scaf, maf2.start, maf2.orig_len, maf2.seq[new_start_lift:new_end_lift], maf2.strand, maf2.scaf_len, maf2.end, new_maf.maf1.start, new_maf.maf1.end, new_maf.maf1.seq)
