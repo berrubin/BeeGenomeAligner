@@ -11,6 +11,11 @@ import numpy
 import copy
 from Bio import SeqIO
 
+fsa_path = "/Genomics/kocherlab/berubin/local/src/fsa_long/bin"
+raxml_path = "/Genomics/kocherlab/berubin/local/src/standard-RAxML"
+paml_path = "/Genomics/kocherlab/berubin/local/src/paml4.9e/bin"
+trimal_path = "/Genomics/kocherlab/berubin/local/src/trimal/source"
+
 HIT_OVERLAP = 0
 INTRON_SIZE = 500
 FILL_CHAR = "N"
@@ -874,7 +879,7 @@ def realign_fsa(maf_scaf_dic, outdir, inspecies, outspecies, num_threads):
 def realign_fsa_worker(param_list):
     infile = param_list[0] 
     outfile = param_list[1]
-    cmd = ["/Genomics/kocherlab/berubin/local/src/fsa_long/bin/fsa", "--anchored", "--exonerate", "--softmasked", "--maxram", "18000", infile]
+    cmd = ["%s/fsa" % fsa_path, "--anchored", "--exonerate", "--softmasked", "--maxram", "18000", infile]
 #    cmd = ["/Genomics/kocherlab/berubin/local/src/fsa_long/bin/fsa", "--anchored", infile]
     FNULL = open(os.devnull, 'w')
     with open(outfile, 'w') as outwriter:
@@ -1042,7 +1047,7 @@ def blengths(seq_dic, outdir, rootname, windex, window_size, min_taxa, constrain
         os.remove("%s/raxml_phylos/RAxML_info.%s_%s.tree" % (outdir, rootname, windex))
     old_dir = os.getcwd()
     os.chdir("%s/raxml_phylos" % outdir)
-    cmd = ["/Genomics/kocherlab/berubin/local/src/standard-RAxML/raxmlHPC-SSE3", '-f', 'a', '-x', '12345', '-p', '12345', '-m', 'GTRGAMMA', '-#', '10', '-s', "%s_%s.afa" % (rootname, windex), '-n', "%s_%s.tree" % (rootname, windex), "-g", "%s/raxml_phylos/%s_%s.constraint" % (outdir, rootname, windex)]
+    cmd = ["%s/raxmlHPC-SSE3" % raxml_path, '-f', 'a', '-x', '12345', '-p', '12345', '-m', 'GTRGAMMA', '-#', '10', '-s', "%s_%s.afa" % (rootname, windex), '-n', "%s_%s.tree" % (rootname, windex), "-g", "%s/raxml_phylos/%s_%s.constraint" % (outdir, rootname, windex)]
     subprocess.call(cmd)
     os.chdir(old_dir)
     os.remove("%s/raxml_phylos/%s_%s.afa" % (outdir, rootname, windex))
@@ -1087,7 +1092,7 @@ def aaml_blengths(seq_dic, outdir, rootname, windex, window_size, min_taxa, cons
 
     cml = baseml.Baseml(alignment = "%s/raxml_phylos/%s_%s.afa" % (outdir, rootname, windex), tree = "%s/raxml_phylos/%s_%s.constraint" % (outdir, rootname, windex), out_file = "%s/raxml_phylos/%s_%s.alt" % (outdir, rootname, windex), working_dir = "%s/raxml_phylos/%s_%s_working" % (outdir, rootname, windex))
     cml.set_options(runmode=0,fix_blength=0,model=7, clock = 0, Mgene = 0, fix_kappa = 0, kappa = 2, getSE = 0, RateAncestor = 0, cleandata = 0, Small_Diff = .45e-6, verbose = True)
-    cml.run(command = "/Genomics/kocherlab/berubin/local/src/paml4.9e/bin/baseml", verbose = True)
+    cml.run(command = "%s/baseml" % paml_path, verbose = True)
     cur_blens = read_aaml_blengths("%s/raxml_phylos/%s_%s.alt" % (outdir, rootname, windex), min_taxa)
 #    if not cur_blens:
 #        return {windex : None}
@@ -1152,7 +1157,7 @@ def trimal(seq_dic, outdir, rootname, windex, window_size):
     seq_file.close()
     inseq = "%s/trimal_windows/%s_%s.dirty" % (outdir, rootname, windex)
     outseq = "%s/trimal_windows/%s_%s.trimal" % (outdir, rootname, windex)
-    cmd = ["/Genomics/kocherlab/berubin/local/src/trimal/source/trimal", "-automated1", "-in", inseq, "-out", outseq]
+    cmd = ["%s/trimal" % trimal_path, "-automated1", "-in", inseq, "-out", outseq]
     subprocess.call(cmd)
     reader = SeqIO.parse(outseq, format = 'fasta')
     trim_dic = {}
