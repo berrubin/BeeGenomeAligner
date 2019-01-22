@@ -33,3 +33,17 @@ You will need ```biopython``` (https://biopython.org/) and ```ete3``` (http://et
 
 The basic procedure followed by ```maf_parser.py``` is to read in whole genome alignments of all taxa against the backbone species (specified by ```-s```). These alignments are filtered so as to be likely syntenic regions between species (i.e. if just a small fraction of a scaffold aligns to a particular scaffold in background, it is discarded). Adjacent alignments separated by fewer than 500 bases are then merged together to reduce the total number of individual aligning regions. Coding sequence is softmasked at this stage. It is only softmasked to allow its inclusion in the realignment step. Species are then added to the alignment one at a time based on the coordinates of the backbone species. Once all species have been added to the alignment of a particular backbone species, all sequences are realigned using ```FSA``` with the ```--anchored``` and ```--exonerate``` and ```--softmasked``` options. 
 
+###Motif presence file
+
+```motif_presence.txt.gz``` contains information on the motif predictions from Rubin et al. (2019). Column definitions are as follows:
+```NCAR_locus```: name of NCAR
+```Complex_eusocial_RER_result```: Indication of whether the relative rates test found that the complex eusocial lineages  at this locus were evolving significantly (p < 0.05) faster ("fast") or slower ("slow") than other lienages.
+```Motif_name```: Consensus motif sequence.
+```AMEL...DNOV```: Indication of whether this motif was present (1) or absent (0) in the NCAR sequence for each species.
+```Greater_abundance_in_complex_or_other```: Whether the focal motif is present in a greater proportion of complex eusocial ("complex") or other ("other") species.
+```#complex_with_motif```: Number of complex eusocial taxa with predicted presence of focal motif.
+```#other_with_motif```: Number of other taxa with predicted presence of focal motif.
+```prop._with_motif```: Proportion of complex eusocial taxa with predicted presence of focal motif.
+```prop._with_motif```: Proportion of other taxa with predicted presence of focal motif.
+```Chi2_p```: p-value of chi-square test for a difference in the presence of the focal motif between complex eusocial and other taxa.
+
