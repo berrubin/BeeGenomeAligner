@@ -1,3 +1,4 @@
+import gzip
 import sys
 from Bio.Phylo.PAML import baseml
 import multiprocessing
@@ -28,7 +29,7 @@ def read_mafs_overlord(base_dir, num_threads, outspecies_list, maf_dir, inspecie
     pool = multiprocessing.Pool(processes = num_threads)
     work_list = []
     for outspecies in outspecies_list:
-        maf_file = "%s/%s.%s.sing.maf" % (maf_dir, inspecies, outspecies)
+        maf_file = "%s/%s.%s.sing.maf.gz" % (maf_dir, inspecies, outspecies)
         work_list.append([maf_file, inspecies, outspecies, gff_dir, scaf_list])
     maf_dic_list = pool.map_async(read_mafs_worker, work_list).get(99999999)
     pairs_dic = {}
@@ -289,7 +290,7 @@ def read_genome(genome_file):
     return seq_dic
 
 def read_maf(inmaf, inspecies, outspecies):
-    reader = open(inmaf, 'rU')
+    reader = gzip.open(inmaf, 'rb')
     maf_blocks = []
     seq_count = 0
     for line in reader:
@@ -647,6 +648,95 @@ def realign_fsa_worker(param_list):
         subprocess.call(cmd, stdout = outwriter, stderr = FNULL)
     outwriter.close()
 
+
+def make_taxa_dic(infile):
+    #This reads in the minimum required taxonomy file. It returns two
+    #dictionaries. manda_dic has tuples of taxon names as keys and 
+    #the number of those taxa required as values. multi_dic has a tuple
+    #of tuples as keys. The idea here is that the nested tuples represent
+    #sets of species that must appear together. The values are the number
+    #of nested tuples that must appear.
+    reader = open(infile, 'rU')
+    manda_dic = {}
+    multi_dic = {}
+    remove_list = []
+    for line in reader:
+        cur_line = line.split()
+        if int(cur_line[0]) < 0:
+            remove_list.append(cur_line[1])
+        if "(" in cur_line[1]:
+            taxa_list = cur_line[1].split("),(")
+            first_pair = taxa_list[0].replace(")","").replace("(", "").split(",")
+            first_tuple = (first_pair[0],)
+            for taxon in first_pair[1:]:
+                first_tuple = first_tuple + (taxon,)
+            taxa_tuple = (first_tuple,)
+
+            for taxon in taxa_list[1:]:
+                next_pair = taxon.replace(")","").replace("(", "").split(",")
+                next_tuple = (next_pair[0],)
+                for next_taxon in next_pair[1:]:
+                    next_tuple = next_tuple + (next_taxon,)
+                taxa_tuple = taxa_tuple + (next_tuple,)
+            multi_dic[taxa_tuple] = int(cur_line[0])
+                
+        else:
+            taxa_list = cur_line[1].split(",")
+            taxa_tuple = (taxa_list[0],)
+            for taxon in taxa_list[1:]:
+                taxa_tuple = taxa_tuple + (taxon,)
+            manda_dic[taxa_tuple] = int(cur_line[0])
+    return manda_dic, multi_dic, remove_list
+
+def min_taxa_membership(manda_dic, multi_dic, remove_list, index_file, min_taxa):
+    reader = open(index_file, 'rU')
+    og_list = []
+    for line in reader:
+        if line.startswith("#"):
+            continue
+        include = True
+        cur_line = line.split()
+        taxa_to_remove = []
+        taxa_list = cur_line[2].split(",")
+        for taxa in taxa_list:
+            if taxa in remove_list:
+                taxa_to_remove.append(taxa)
+        if int(cur_line[1]) - len(remove_list) < min_taxa:
+            continue
+        for these_taxa, min_count in manda_dic.items():
+            mycount = 0
+            for this_taxon in these_taxa:
+                if this_taxon in taxa_list:
+                    mycount += 1
+            if mycount < min_count:
+                include = False
+                break
+        if not include:
+            continue
+        for these_sets, min_count in multi_dic.items():
+            mycount = 0
+            for this_set in these_sets:
+                set_total = 0
+                for this_taxon in this_set:
+                    if this_taxon in taxa_list:
+                        set_total += 1
+                if set_total == len(this_set):
+                    mycount += 1
+            if mycount < min_count:
+                include = False
+        if include:
+            og_list.append(cur_line[0])
+    return og_list
+
+
+def countseqs(fasta_file):
+    counter = 0
+    reader = SeqIO.parse(fasta_file, format = 'fasta')
+    for rec in reader:
+        counter += 1
+    return counter
+
+
 def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree, num_threads):
     if not os.path.isdir(outdir):
         os.mkdir(outdir)
@@ -654,10 +744,14 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
         os.mkdir(outdir + "/raxml_phylos")
     if not os.path.isdir(outdir + "/trimal_windows"):
         os.mkdir(outdir + "/trimal_windows")
+    if not os.path.isdir(outdir + "/filtered_loci"):
+        os.mkdir(outdir + "/filtered_loci")
 
     pool = multiprocessing.Pool(processes = num_threads)
     work_list = []
     for scaf, maf_list in maf_scaf_dic.items():
+#        if scaf != "NMEL_chr_1":
+#            continue
         for maf in maf_list:
             target_maf = maf.get_maf(inspecies)
             out_maf = maf.get_maf(outspecies)
@@ -666,13 +760,27 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
                 if countseqs(infile) > 0:
                     work_list.append([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
     blens = pool.map_async(slide_baby_slide_worker, work_list).get(99999999)
-    outfile = open("%s/compiled_blens.txt" % outdir, 'w')
+    # outfile = open("%s/compiled_blens.txt" % outdir, 'w')
+    # for locus_dic in blens:
+    #     for maf, blens_dic in locus_dic.items():
+    #         for windex, treestr in blens_dic.items():
+    #             if treestr == None:
+    #                 continue
+    #             if inspecies not in treestr:
+    #                 continue
+    #             real_space_coord = windex - maf.realigned_seq[0:windex].count("-")
+    #             windex_seq = maf.realigned_seq[windex:windex+500].replace("N","n")
+    #             if windex_seq.startswith("n") or windex_seq.lstrip("-").startswith("n"):
+    #                 n_count = len(windex_seq) - len(windex_seq.replace("-", "n").lstrip("n"))
+    #                 real_space_coord = real_space_coord + n_count
+    #             cur_locus = "%s_%s_%s_%s_%s_%s" % (maf.scaf, maf.start, maf.end, windex, real_space_coord, maf.strand)
+    #             outfile.write("%s\t%s\n" % (cur_locus, treestr))
+    # outfile.close()
+    outfile = open("%s/filtered_loci.index" % outdir, 'w')
     for locus_dic in blens:
         for maf, blens_dic in locus_dic.items():
-            for windex, treestr in blens_dic.items():
-                if treestr == None:
-                    continue
-                if inspecies not in treestr:
+            for windex, trimal_dic in blens_dic.items():
+                if inspecies not in trimal_dic.keys():
                     continue
                 real_space_coord = windex - maf.realigned_seq[0:windex].count("-")
                 windex_seq = maf.realigned_seq[windex:windex+500].replace("N","n")
@@ -680,15 +788,16 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
                     n_count = len(windex_seq) - len(windex_seq.replace("-", "n").lstrip("n"))
                     real_space_coord = real_space_coord + n_count
                 cur_locus = "%s_%s_%s_%s_%s_%s" % (maf.scaf, maf.start, maf.end, windex, real_space_coord, maf.strand)
-                outfile.write("%s\t%s\n" % (cur_locus, treestr))
+                seqfile = open("%s/filtered_loci/%s.afa" % (outdir, cur_locus), 'w')
+                for rec_id, seq in trimal_dic.items():
+                    seqfile.write(">%s\n%s\n" % (rec_id, str(seq)))
+                seqfile.close()
+                outfile.write("%s\t%s\t%s\n" % (cur_locus, len(trimal_dic.keys()), ",".join(trimal_dic.keys())))
+
+    #             outfile.write("%s\t%s\n" % (cur_locus, treestr))
     outfile.close()
 
-def countseqs(fasta_file):
-    counter = 0
-    reader = SeqIO.parse(fasta_file, format = 'fasta')
-    for rec in reader:
-        counter += 1
-    return counter
+
 
 def slide_baby_slide_worker(param_list):
     mymaf = param_list[0]
@@ -705,6 +814,7 @@ def slide_baby_slide_worker(param_list):
     reader = SeqIO.parse(infile, format = 'fasta')
     seq_dic ={}
     blens_dic = {}
+    trimal_dic = {}
     seq_len = 0
     for rec in reader:
         seq_dic[rec.id] = str(rec.seq).swapcase()
@@ -720,11 +830,16 @@ def slide_baby_slide_worker(param_list):
             if cur_seq.count("G") + cur_seq.count("C") + cur_seq.count("A") + cur_seq.count("T") > window_size * 0.5:
                 cur_dic[seq_id] = cur_seq
         if len(cur_dic) > min_taxa:
-            cur_blens = aaml_blengths(cur_dic, outdir, infile.split(".afa")[0].split("/")[-1], x, window_size, min_taxa, constraint_tree)
-            blens_dic[x] = cur_blens
+            trimal_dic[x] = trimal(cur_dic, outdir, infile.split(".afa")[0].split("/")[-1], x, window_size)
+
+
+#        if len(cur_dic) > min_taxa:
+#            cur_blens = aaml_blengths(cur_dic, outdir, infile.split(".afa")[0].split("/")[-1], x, window_size, min_taxa, constraint_tree)
+#            blens_dic[x] = cur_blens
         x = x + window_step
     target_maf.realigned_seq = realigned_ref
-    return {target_maf : blens_dic}
+ #   return {target_maf : blens_dic}
+    return {target_maf : trimal_dic}
 
         
 def blengths(seq_dic, outdir, rootname, windex, window_size, min_taxa, constraint_tree):
@@ -774,10 +889,81 @@ def blengths(seq_dic, outdir, rootname, windex, window_size, min_taxa, constrain
     else:
         return None
 
+
+def baseml_blengths(ncar_list, aligndir, outdir, treefile, num_threads, remove_list):
+    if not os.path.isdir(outdir):
+        os.mkdir(outdir)
+    pool = multiprocessing.Pool(processes = num_threads)
+    work_list = []
+    for ncar in ncar_list:
+        work_list.append([ncar, aligndir, outdir, treefile, remove_list])
+    pool.map_async(baseml_worker, work_list).get(9999999)
+
+def baseml_worker(param_list):
+    ncar = param_list[0]
+    aligndir = param_list[1]
+    outdir = param_list[2]
+    treefile = param_list[3]
+    remove_list = param_list[4]
+    reader = SeqIO.parse("%s/%s.afa" % (aligndir, ncar), format = 'fasta')
+    seq_dic = {}
+    for rec in reader:
+        seq_dic[rec.id] = str(rec.seq)
+    outfile = open("%s/%s.afa" % (outdir, ncar), 'w')
+    taxa_list = []
+    for seq_name, seq in seq_dic.items():
+        if seq_name not in remove_list:
+            taxa_list.append(seq_name)
+            outfile.write(">%s\n%s\n" % (seq_name, seq))
+    outfile.close()
+    tree = PhyloTree(treefile)
+    tree.prune(taxa_list)
+    tree.unroot()
+    tree_str = tree.write(format = 5)
+    cons_file = open("%s/%s.constraint" % (outdir, ncar), 'w')
+    cons_file.write(tree_str)
+    cons_file.close()
+    cml = baseml.Baseml(alignment = "%s/%s.afa" % (outdir, ncar), tree = "%s/%s.constraint" % (outdir, ncar), out_file = "%s/%s.alt" % (outdir, ncar), working_dir = "%s/%s_working" % (outdir, ncar))
+    cml.set_options(runmode=0,fix_blength=0,model=7, clock = 0, Mgene = 0, fix_kappa = 0, kappa = 2, getSE = 0, RateAncestor = 0, cleandata = 0, Small_Diff = .45e-6, verbose = True)
+    cml.run(command = "%s/baseml" % paml_path, verbose = True)
+
+def read_baseml_phylos(ncar_list, indir, outdir, outfile):
+    if not os.path.isdir(outdir):
+        os.mkdir(outdir)
+    output = open("%s/%s" % (outdir, outfile), 'w')
+    for ncar in ncar_list:
+        cur_blens = read_baseml_blengths("%s/%s.alt" % (indir, ncar))
+        output.write("%s\t%s\n" % (ncar, cur_blens))
+    output.close()
+
+def read_baseml_blengths(infile):
+    og_file =open(infile, 'rU')
+    aa_tree = False
+    first_line = True
+    line = og_file.readline()
+    while True:
+        if first_line:
+            seq_len = int(line.strip().split()[1])
+            first_line = False
+        if aa_tree:
+            aa = PhyloTree(line.strip().replace("#", ":"))
+            return aa.write(format = 5)
+        if line.strip().startswith("tree length = "):
+            og_file.readline()
+            og_file.readline()
+            og_file.readline()
+            line = og_file.readline()
+            aa_tree = True
+            continue
+        line = og_file.readline()
+        if not line:
+            break
+
 def aaml_blengths(seq_dic, outdir, rootname, windex, window_size, min_taxa, constraint_tree):
     seq_dic = trimal(seq_dic, outdir, rootname, windex, window_size)
     if len(seq_dic) < min_taxa:
         return
+    
     seq_file = open("%s/raxml_phylos/%s_%s.afa" % (outdir, rootname, windex), 'w')
     for k, v in seq_dic.items():
         cur_length = len(v)
@@ -834,8 +1020,6 @@ def read_aaml_blengths(aaml_file, min_taxa):
             line = og_file.readline()
             aa_tree = True
             continue
-        if seq_len < 300:
-            break
         line = og_file.readline()
         if not line:
             break
