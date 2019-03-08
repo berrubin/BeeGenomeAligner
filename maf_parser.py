@@ -22,6 +22,7 @@ parser.add_option("-k", "--target_scafs", dest = "target_scafs", type = "str")
 parser.add_option("--taxa_inclusion", dest = "taxa_inclusion", type = str)
 parser.add_option("--outputfile", dest = "outputfile", type = str)
 parser.add_option("-a", "--action", dest = "action", type = str)
+parser.add_option("-r", "--params", dest = "params", type = str)
 
 (options, args) = parser.parse_args()
 outspecies_list = options.outspecies.split(",")
@@ -41,7 +42,7 @@ def main():
                 if scaf in pairs_dic[outspecies].keys():
                     utils.add_species_to_maf(options.inspecies, outspecies, maf_list, pairs_dic[outspecies][scaf])
             maf_list = utils.filter_small_mafs(maf_list, options.min_taxa)
-#            utils.write_mafs_to_file(maf_list, options.output_dir, options.inspecies, outspecies_list[0])
+            utils.write_mafs_to_file(maf_list, options.output_dir, options.inspecies, outspecies_list[0])
             new_maf_scaf_dic[scaf] = maf_list
         pickle_file = open("%s/maf_dic.pickle" % (options.output_dir), 'wb')
         pickle.dump(new_maf_scaf_dic, pickle_file)
@@ -49,6 +50,9 @@ def main():
         sys.exit()
 
     elif options.action == "realign":
+        pickle_file = open("%s/maf_dic.pickle" % (options.output_dir), 'rb')
+        new_maf_scaf_dic = pickle.load(pickle_file)
+        pickle_file.close()
         utils.realign_fsa(new_maf_scaf_dic, options.output_dir, options.inspecies, outspecies_list[0], options.num_threads)
         sys.exit()
 
@@ -56,14 +60,17 @@ def main():
         pickle_file = open("%s/maf_dic.pickle" % (options.output_dir), 'rb')
         new_maf_scaf_dic = pickle.load(pickle_file)
         pickle_file.close()
-        utils.slide_baby_slide(new_maf_scaf_dic, options.output_dir, options.inspecies, outspecies_list[0], options.window_size, options.step_size, options.min_taxa, options.constraint_tree, options.num_threads)
+        utils.genome_blast_dbs(options.params, options.output_dir)
+        print "write_loci"
+        utils.slide_baby_slide(new_maf_scaf_dic, options.output_dir, options.inspecies, outspecies_list[0], options.window_size, options.step_size, options.min_taxa, options.constraint_tree, options.num_threads, options.params, options.gff_dir)
+        sys.exit()
 
     elif options.action == "rer_converge":
         manda_taxa, multi_taxa, remove_list = utils.make_taxa_dic(options.taxa_inclusion)
         ncar_list = utils.min_taxa_membership(manda_taxa, multi_taxa, remove_list, "%s/filtered_loci.index" % (options.output_dir), options.min_taxa)
         utils.baseml_blengths(ncar_list, "%s/filtered_loci" % (options.output_dir), "%s/baseml_%s" % (options.output_dir, options.outputfile.split(".")[0]), options.constraint_tree, options.num_threads, remove_list)
         utils.read_baseml_phylos(ncar_list, "%s/baseml_%s" % (options.output_dir, options.outputfile.split(".")[0]), "%s/baseml_compiled" % (options.output_dir), options.outputfile)
-
+        sys.exit()
         
     
 if __name__ == '__main__':

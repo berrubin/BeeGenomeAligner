@@ -1,3 +1,4 @@
+from Bio import Seq
 import gzip
 import sys
 from Bio.Phylo.PAML import baseml
@@ -538,10 +539,10 @@ def write_mafs_to_file(maf_list, outdir, inspecies, outspecies):
         target_maf = maf.get_maf(inspecies)
         out_maf = maf.get_maf(outspecies)
         outfile = open("%s/maf_files/%s_%s_%s_%s_%s_%s.fa" % (outdir, target_maf.scaf, target_maf.start, target_maf.end, out_maf.scaf, out_maf.start, out_maf.end), 'w')
-        outfile.write(">%s:%s:%s:%s\n%s\n" % (inspecies, target_maf.scaf, target_maf.start, target_maf.end, target_maf.seq.replace("-", "-").swapcase()))
-        outfile.write(">%s:%s:%s:%s\n%s\n" % (outspecies, out_maf.scaf, out_maf.start, out_maf.end, out_maf.seq.replace("-", "").swapcase()))
+        outfile.write(">%s:%s:%s:%s:%s\n%s\n" % (inspecies, target_maf.scaf, target_maf.start, target_maf.end, target_maf.strand, target_maf.seq.replace("-", "-").swapcase()))
+        outfile.write(">%s:%s:%s:%s:%s\n%s\n" % (outspecies, out_maf.scaf, out_maf.start, out_maf.end, out_maf.strand, out_maf.seq.replace("-", "").swapcase()))
         for other_maf in maf.mafothers:
-            outfile.write(">%s:%s:%s:%s\n%s\n" % (other_maf.species, other_maf.scaf, other_maf.start, other_maf.end, other_maf.seq.replace("N", "").replace("-", "").swapcase()))
+            outfile.write(">%s:%s:%s:%s:%s\n%s\n" % (other_maf.species, other_maf.scaf, other_maf.start, other_maf.end, other_maf.strand, other_maf.seq.replace("N", "").replace("-", "").swapcase()))
         outfile.close()
 
 
@@ -697,7 +698,7 @@ def min_taxa_membership(manda_dic, multi_dic, remove_list, index_file, min_taxa)
         include = True
         cur_line = line.split()
         taxa_to_remove = []
-        taxa_list = cur_line[2].split(",")
+        taxa_list = [seq_name[0:4] for seq_name in cur_line[2].split(",")]
         for taxa in taxa_list:
             if taxa in remove_list:
                 taxa_to_remove.append(taxa)
@@ -736,21 +737,46 @@ def countseqs(fasta_file):
         counter += 1
     return counter
 
+def genome_blast_dbs(genome_paths, outdir):
+    if not os.path.exists("%s/blastdbs" % outdir):
+        os.mkdir("%s/blastdbs" % outdir)
+    blast_working = "%s/blastdbs" % outdir
+    reader = open(genome_paths, 'rU')
+    seq_dic = {}
+    for line in reader:
+        cur_line = line.split()
+        cmd = ["makeblastdb", "-in", cur_line[1], "-out", "%s/%s_db" % (blast_working, cur_line[0]), "-dbtype", "nucl"]
+        subprocess.call(cmd)
 
-def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree, num_threads):
+def genome_seqs(genome_paths):
+    reader = open(genome_paths, 'rU')
+    seq_dic = {}
+    for line in reader:
+        cur_line = line.split()
+        seq_reader = SeqIO.parse(cur_line[1], format = 'fasta')
+        seq_dic[cur_line[0]] = {}
+        for rec in seq_reader:
+            seq_dic[cur_line[0]][rec.id] = str(rec.seq)
+    return seq_dic
+
+def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree, num_threads, genome_paths, gff_dir):
     if not os.path.isdir(outdir):
         os.mkdir(outdir)
-    if not os.path.isdir(outdir + "/raxml_phylos"):
-        os.mkdir(outdir + "/raxml_phylos")
+#    if not os.path.isdir(outdir + "/raxml_phylos"):
+#        os.mkdir(outdir + "/raxml_phylos")
     if not os.path.isdir(outdir + "/trimal_windows"):
         os.mkdir(outdir + "/trimal_windows")
     if not os.path.isdir(outdir + "/filtered_loci"):
         os.mkdir(outdir + "/filtered_loci")
+    if not os.path.isdir(outdir + "/blast_working"):
+        os.mkdir(outdir + "/blast_working")
+    if not os.path.isdir(outdir + "/ncar_annotations"):
+        os.mkdir(outdir + "/ncar_annotations")
 
     pool = multiprocessing.Pool(processes = num_threads)
     work_list = []
     for scaf, maf_list in maf_scaf_dic.items():
-#        if scaf != "NMEL_chr_1":
+#        if scaf != "NMEL_chr_6":
 #            continue
         for maf in maf_list:
             target_maf = maf.get_maf(inspecies)
@@ -758,29 +784,21 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
             infile = "%s/maf_files/%s_%s_%s_%s_%s_%s.afa" % (outdir, target_maf.scaf, target_maf.start, target_maf.end, out_maf.scaf, out_maf.start, out_maf.end)
             if os.path.exists(infile):
                 if countseqs(infile) > 0:
-                    work_list.append([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
+#                    work_list.append([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
+                    slide_baby_slide_worker([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
+    print len(work_list)
     blens = pool.map_async(slide_baby_slide_worker, work_list).get(99999999)
-    # outfile = open("%s/compiled_blens.txt" % outdir, 'w')
-    # for locus_dic in blens:
-    #     for maf, blens_dic in locus_dic.items():
-    #         for windex, treestr in blens_dic.items():
-    #             if treestr == None:
-    #                 continue
-    #             if inspecies not in treestr:
-    #                 continue
-    #             real_space_coord = windex - maf.realigned_seq[0:windex].count("-")
-    #             windex_seq = maf.realigned_seq[windex:windex+500].replace("N","n")
-    #             if windex_seq.startswith("n") or windex_seq.lstrip("-").startswith("n"):
-    #                 n_count = len(windex_seq) - len(windex_seq.replace("-", "n").lstrip("n"))
-    #                 real_space_coord = real_space_coord + n_count
-    #             cur_locus = "%s_%s_%s_%s_%s_%s" % (maf.scaf, maf.start, maf.end, windex, real_space_coord, maf.strand)
-    #             outfile.write("%s\t%s\n" % (cur_locus, treestr))
-    # outfile.close()
+
     outfile = open("%s/filtered_loci.index" % outdir, 'w')
+    gff_file_dic = {}
+    ncar_file_dic = {}
+    ncar_index = 10000
+    genome_seq_dic = genome_seqs(genome_paths)
+    genome_seq_dic = mask_unaligned_genomes(genome_seq_dic, gff_dir)
     for locus_dic in blens:
         for maf, blens_dic in locus_dic.items():
             for windex, trimal_dic in blens_dic.items():
-                if inspecies not in trimal_dic.keys():
+                if inspecies not in [taxon[0:4] for taxon in trimal_dic.keys()]:
                     continue
                 real_space_coord = windex - maf.realigned_seq[0:windex].count("-")
                 windex_seq = maf.realigned_seq[windex:windex+500].replace("N","n")
@@ -788,15 +806,31 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
                     n_count = len(windex_seq) - len(windex_seq.replace("-", "n").lstrip("n"))
                     real_space_coord = real_space_coord + n_count
                 cur_locus = "%s_%s_%s_%s_%s_%s" % (maf.scaf, maf.start, maf.end, windex, real_space_coord, maf.strand)
-                seqfile = open("%s/filtered_loci/%s.afa" % (outdir, cur_locus), 'w')
+                seqfile = open("%s/filtered_loci/NCAR_%s.afa" % (outdir, ncar_index), 'w')
                 for rec_id, seq in trimal_dic.items():
                     seqfile.write(">%s\n%s\n" % (rec_id, str(seq)))
+                    if rec_id[0:4] not in gff_file_dic.keys():
+                        gff_file_dic[rec_id[0:4]] = open("%s/ncar_annotations/%s_ncars.gff" % (outdir, rec_id[0:4]), 'w')
+                        ncar_file_dic[rec_id[0:4]] = open("%s/ncar_annotations/%s_ncars.fasta" % (outdir, rec_id[0:4]), 'w')
+                    seq_features = rec_id.split(":")
+                    cur_scaf = seq_features[1]
+                    cur_start = int(seq_features[2])
+                    cur_end = int(seq_features[3])
+                    cur_strand = seq_features[4]
+                    gff_file_dic[rec_id[0:4]].write("%s\tNCARpipe\tncar\t%s\t%s\t.\t%s\t.\tID=%s;Name=%s;\n" % (cur_scaf, cur_start, cur_end, cur_strand, rec_id, rec_id))
+                    cur_seq = genome_seq_dic[rec_id[0:4]][cur_scaf][cur_start:cur_end]
+                    if cur_strand == "-":
+                        cur_seq = str(Seq.Seq(cur_seq).reverse_complement())
+                    ncar_file_dic[rec_id[0:4]].write(">%s\n%s\n" % (rec_id, cur_seq))
                 seqfile.close()
-                outfile.write("%s\t%s\t%s\n" % (cur_locus, len(trimal_dic.keys()), ",".join(trimal_dic.keys())))
+                outfile.write("%s\t%s\t%s\t%s\n" % (cur_locus, ncar_index, len(trimal_dic.keys()), ",".join(trimal_dic.keys())))
+                ncar_index += 1
 
-    #             outfile.write("%s\t%s\n" % (cur_locus, treestr))
     outfile.close()
-
+    for gff_file in gff_file_dic.values():
+        gff_file.close()
+    for ncar_file in ncar_file_dic.values():
+        ncar_file.close()
 
 
 def slide_baby_slide_worker(param_list):
@@ -808,9 +842,11 @@ def slide_baby_slide_worker(param_list):
     window_step = param_list[5]
     min_taxa = param_list[6]
     constraint_tree = param_list[7]
+    blast_working = "%s/blast_working/" % outdir
     target_maf = mymaf.get_maf(inspecies)
     out_maf = mymaf.get_maf(outspecies)
     infile = "%s/maf_files/%s_%s_%s_%s_%s_%s.afa" % (outdir, target_maf.scaf, target_maf.start, target_maf.end, out_maf.scaf, out_maf.start, out_maf.end)
+
     reader = SeqIO.parse(infile, format = 'fasta')
     seq_dic ={}
     blens_dic = {}
@@ -818,7 +854,6 @@ def slide_baby_slide_worker(param_list):
     seq_len = 0
     for rec in reader:
         seq_dic[rec.id] = str(rec.seq).swapcase()
-        seq_dic[rec.id] = seq_dic[rec.id].replace("g", "n").replace("c", "n").replace("t", "n").replace("a", "n")
         seq_len = len(rec.seq)
         if rec.id[0:4] == inspecies:
             realigned_ref = seq_dic[rec.id]
@@ -827,19 +862,57 @@ def slide_baby_slide_worker(param_list):
         cur_dic = {}
         for seq_id, seq in seq_dic.items():
             cur_seq = seq[x:x+window_size]
+            print seq_id
+            cur_feature = seq_id.split(":")
+            cur_species = cur_feature[0]
+            cur_scaf = cur_feature[1]
+            cur_strand = cur_feature[4]
+            cur_start, cur_end = get_ncar_coords(cur_seq, cur_strand, seq_id + ":" + str(x), outdir)
+            cur_seq = cur_seq.replace("g", "n").replace("c", "n").replace("t", "n").replace("a", "n")
+            new_seq_id = "%s:%s:%s:%s:%s" % (cur_species, cur_scaf, cur_start, cur_end, cur_strand)
+
             if cur_seq.count("G") + cur_seq.count("C") + cur_seq.count("A") + cur_seq.count("T") > window_size * 0.5:
-                cur_dic[seq_id] = cur_seq
+                cur_dic[new_seq_id] = cur_seq
         if len(cur_dic) > min_taxa:
             trimal_dic[x] = trimal(cur_dic, outdir, infile.split(".afa")[0].split("/")[-1], x, window_size)
-
-
-#        if len(cur_dic) > min_taxa:
-#            cur_blens = aaml_blengths(cur_dic, outdir, infile.split(".afa")[0].split("/")[-1], x, window_size, min_taxa, constraint_tree)
-#            blens_dic[x] = cur_blens
         x = x + window_step
     target_maf.realigned_seq = realigned_ref
- #   return {target_maf : blens_dic}
     return {target_maf : trimal_dic}
+
+def get_ncar_coords(ncar_seq, strand, seq_id, blast_working):
+    cur_seq = ncar_seq.replace("-","").upper()
+    if len(cur_seq) < 20:
+        return -1, -1
+    blast_file = open("%s/blast_working/%s.query" % (blast_working, seq_id), 'w')
+    blast_file.write(">%s\n%s\n" % (seq_id, cur_seq))
+    blast_file.close()
+    cur_species = seq_id.split(":")[0]
+    cmd = ["blastn", "-query", "%s/blast_working/%s.query" % (blast_working, seq_id), "-db", "%s/blastdbs/%s_db" % (blast_working, cur_species), "-outfmt", "6", "-out", "%s/blast_working/%s.txt" % (blast_working, seq_id), "-max_target_seqs", "1"]
+    subprocess.call(cmd)
+    reader = open("%s/blast_working/%s.txt" % (blast_working, seq_id), 'rU')
+    smallest_start = -1
+    biggest_end = -1
+    for line in reader:
+        cur_line = line.split()
+        cur_start = int(cur_line[8])
+        cur_end = int(cur_line[9])
+        if smallest_start < 0:
+            smallest_start = cur_start
+        elif cur_start < smallest_start:
+            smallest_start = cur_start
+        if cur_end > biggest_end:
+            biggest_end = cur_end
+    if biggest_end - smallest_start > 10000:
+        print "Huge deletion"
+        print seq_id
+        print ncar_seq
+    if biggest_end < smallest_start:
+        temp_start = smallest_start
+        smallest_start = biggest_end
+        biggest_end = temp_start
+    os.remove("%s/blast_working/%s.query" % (blast_working, seq_id))
+    os.remove("%s/blast_working/%s.txt" % (blast_working, seq_id))
+    return smallest_start - 1, biggest_end
 
         
 def blengths(seq_dic, outdir, rootname, windex, window_size, min_taxa, constraint_tree):
@@ -912,8 +985,9 @@ def baseml_worker(param_list):
     outfile = open("%s/%s.afa" % (outdir, ncar), 'w')
     taxa_list = []
     for seq_name, seq in seq_dic.items():
-        if seq_name not in remove_list:
-            taxa_list.append(seq_name)
+        cur_taxa = seq_name.split(":")[0]
+        if cur_taxa not in remove_list:
+            taxa_list.append(cur_taxa)
             outfile.write(">%s\n%s\n" % (seq_name, seq))
     outfile.close()
     tree = PhyloTree(treefile)
@@ -1029,7 +1103,9 @@ def read_aaml_blengths(aaml_file, min_taxa):
 def trimal(seq_dic, outdir, rootname, windex, window_size):
     seq_file = open("%s/trimal_windows/%s_%s.dirty" % (outdir, rootname, windex), 'w')
     for k, v in seq_dic.items():
-        seq_file.write(">%s\n%s\n" % (k.split(":")[0], v))
+#        seq_file.write(">%s\n%s\n" % (k.split(":")[0], v))
+            
+        seq_file.write(">%s\n%s\n" % (k.replace(":","."), v))
     seq_file.close()
     inseq = "%s/trimal_windows/%s_%s.dirty" % (outdir, rootname, windex)
     outseq = "%s/trimal_windows/%s_%s.trimal" % (outdir, rootname, windex)
@@ -1040,7 +1116,7 @@ def trimal(seq_dic, outdir, rootname, windex, window_size):
     for rec in reader:
         cur_seq = str(rec.seq)
         if cur_seq.count("G") + cur_seq.count("C") + cur_seq.count("A") + cur_seq.count("T") > 0.5* window_size:
-            trim_dic[rec.id] = str(rec.seq)
+            trim_dic[rec.id.replace(".",":")] = str(rec.seq)
     return trim_dic
 
 def add_species_to_maf(inspecies, newspecies, old_maf_list, new_maf_list):
@@ -1098,3 +1174,30 @@ def add_species_to_maf(inspecies, newspecies, old_maf_list, new_maf_list):
             species_merged_maf_list.append(new_maf)
     return species_merged_maf_list
                     
+def mask_unaligned_genomes(genome_seqs, gff_dir):
+    masked_genomes = copy.deepcopy(genome_seqs)
+    for species, seq_dic in genome_seqs.items():
+        reader = open("%s/%s.gff" % (gff_dir, species), 'rU')
+        cds_tuples = {}
+        for line in reader:
+            cur_line = line.split()
+            cur_type = cur_line[2]
+            if cur_type != "CDS":
+                continue
+            cur_scaf = cur_line[0]
+            cur_start = int(cur_line[3])
+            cur_end = int(cur_line[4])
+            if cds_tuples.get(cur_scaf, None) == None:
+                cds_tuples[cur_scaf] = []
+            cds_tuples[cur_scaf].append((cur_start, cur_end))
+        for scaf, cds_list in cds_tuples.items():
+            scaf_seq = masked_genomes[species][scaf]
+            scaf_seq_list = list(scaf_seq)
+            for cds_coords in cds_list:
+                cur_index = cds_coords[0] - 1
+                while cur_index < cds_coords[1]:
+                    scaf_seq_list[cur_index] = "n"
+                    cur_index += 1
+            masked_scaf = "".join(scaf_seq_list)
+            masked_genomes[species][scaf] = masked_scaf
+    return masked_genomes
