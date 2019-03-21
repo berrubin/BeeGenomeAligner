@@ -784,8 +784,8 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
             infile = "%s/maf_files/%s_%s_%s_%s_%s_%s.afa" % (outdir, target_maf.scaf, target_maf.start, target_maf.end, out_maf.scaf, out_maf.start, out_maf.end)
             if os.path.exists(infile):
                 if countseqs(infile) > 0:
-#                    work_list.append([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
-                    slide_baby_slide_worker([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
+                    work_list.append([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
+#                    slide_baby_slide_worker([maf, outdir, inspecies, outspecies, window_size, window_step, min_taxa, constraint_tree])
     print len(work_list)
     blens = pool.map_async(slide_baby_slide_worker, work_list).get(99999999)
 
@@ -862,12 +862,12 @@ def slide_baby_slide_worker(param_list):
         cur_dic = {}
         for seq_id, seq in seq_dic.items():
             cur_seq = seq[x:x+window_size]
-            print seq_id
+#            print seq_id
             cur_feature = seq_id.split(":")
             cur_species = cur_feature[0]
             cur_scaf = cur_feature[1]
-            cur_strand = cur_feature[4]
-            cur_start, cur_end = get_ncar_coords(cur_seq, cur_strand, seq_id + ":" + str(x), outdir)
+#            cur_strand = cur_feature[4]
+            cur_start, cur_end, cur_strand = get_ncar_coords(cur_seq, seq_id + ":" + str(x), outdir)
             cur_seq = cur_seq.replace("g", "n").replace("c", "n").replace("t", "n").replace("a", "n")
             new_seq_id = "%s:%s:%s:%s:%s" % (cur_species, cur_scaf, cur_start, cur_end, cur_strand)
 
@@ -879,21 +879,29 @@ def slide_baby_slide_worker(param_list):
     target_maf.realigned_seq = realigned_ref
     return {target_maf : trimal_dic}
 
-def get_ncar_coords(ncar_seq, strand, seq_id, blast_working):
+def get_ncar_coords(ncar_seq, seq_id, blast_working):
     cur_seq = ncar_seq.replace("-","").upper()
     if len(cur_seq) < 20:
-        return -1, -1
+        return -1, -1, "+"
+    seq_list = cur_seq.strip("N").split("N")
     blast_file = open("%s/blast_working/%s.query" % (blast_working, seq_id), 'w')
-    blast_file.write(">%s\n%s\n" % (seq_id, cur_seq))
+    seq_num = 0
+    for seq in seq_list:
+        if len(seq) == 0:
+            continue
+        blast_file.write(">%s_%s\n%s\n" % (seq_id, seq_num, seq))
+        seq_num += 1
     blast_file.close()
     cur_species = seq_id.split(":")[0]
-    cmd = ["blastn", "-query", "%s/blast_working/%s.query" % (blast_working, seq_id), "-db", "%s/blastdbs/%s_db" % (blast_working, cur_species), "-outfmt", "6", "-out", "%s/blast_working/%s.txt" % (blast_working, seq_id), "-max_target_seqs", "1"]
+    cmd = ["blastn", "-query", "%s/blast_working/%s.query" % (blast_working, seq_id), "-db", "%s/blastdbs/%s_db" % (blast_working, cur_species), "-outfmt", "6", "-out", "%s/blast_working/%s.txt" % (blast_working, seq_id), "-max_target_seqs", "1", "-perc_identity", "95"]
     subprocess.call(cmd)
     reader = open("%s/blast_working/%s.txt" % (blast_working, seq_id), 'rU')
     smallest_start = -1
     biggest_end = -1
     for line in reader:
         cur_line = line.split()
+        if float(cur_line[2]) < 90:
+            continue
         cur_start = int(cur_line[8])
         cur_end = int(cur_line[9])
         if smallest_start < 0:
@@ -902,17 +910,22 @@ def get_ncar_coords(ncar_seq, strand, seq_id, blast_working):
             smallest_start = cur_start
         if cur_end > biggest_end:
             biggest_end = cur_end
+        if abs(biggest_end - smallest_start) >= len(ncar_seq.strip("N"))-10:
+            break
     if biggest_end - smallest_start > 10000:
         print "Huge deletion"
         print seq_id
         print ncar_seq
+    cur_strand = "+"
     if biggest_end < smallest_start:
         temp_start = smallest_start
         smallest_start = biggest_end
         biggest_end = temp_start
+        cur_strand = "-"
     os.remove("%s/blast_working/%s.query" % (blast_working, seq_id))
     os.remove("%s/blast_working/%s.txt" % (blast_working, seq_id))
-    return smallest_start - 1, biggest_end
+#    print "%s\t%s\t%s" % (smallest_start, biggest_end, cur_strand)
+    return smallest_start - 1, biggest_end, cur_strand
 
         
 def blengths(seq_dic, outdir, rootname, windex, window_size, min_taxa, constraint_tree):
