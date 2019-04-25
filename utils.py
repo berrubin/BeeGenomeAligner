@@ -32,6 +32,7 @@ def read_mafs_overlord(base_dir, num_threads, outspecies_list, maf_dir, inspecie
     for outspecies in outspecies_list:
         maf_file = "%s/%s.%s.sing.maf.gz" % (maf_dir, inspecies, outspecies)
         work_list.append([maf_file, inspecies, outspecies, gff_dir, scaf_list])
+#        read_mafs_worker([maf_file, inspecies, outspecies, gff_dir, scaf_list])
     maf_dic_list = pool.map_async(read_mafs_worker, work_list).get(99999999)
     pairs_dic = {}
     for x in range(len(outspecies_list)):
@@ -448,6 +449,8 @@ def mask_proteins(maf_list, species, gff_file):
     for line in reader:
         if line.startswith("#"):
             continue
+        if "#" in line:
+            continue
         if line.startswith(">"):
             break
         cur_line = line.split()
@@ -637,6 +640,7 @@ def realign_fsa(maf_scaf_dic, outdir, inspecies, outspecies, num_threads):
                 if counter == num_needed:
                     continue
             work_list.append([infile, outfile])
+    print "%s fastas to realign with FSA" % str(len(work_list))
     pool.map_async(realign_fsa_worker, work_list).get(99999999)
 
 
@@ -808,11 +812,12 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
                 cur_locus = "%s_%s_%s_%s_%s_%s" % (maf.scaf, maf.start, maf.end, windex, real_space_coord, maf.strand)
                 seqfile = open("%s/filtered_loci/NCAR_%s.afa" % (outdir, ncar_index), 'w')
                 for rec_id, seq in trimal_dic.items():
-                    seqfile.write(">%s\n%s\n" % (rec_id, str(seq)))
+#                    seqfile.write(">%s\n%s\n" % (rec_id, str(seq)))
                     if rec_id[0:4] not in gff_file_dic.keys():
                         gff_file_dic[rec_id[0:4]] = open("%s/ncar_annotations/%s_ncars.gff" % (outdir, rec_id[0:4]), 'w')
                         ncar_file_dic[rec_id[0:4]] = open("%s/ncar_annotations/%s_ncars.fasta" % (outdir, rec_id[0:4]), 'w')
-                    seq_features = rec_id.split(":")
+#                    seq_features = rec_id.split(":")
+                    seq_features = rec_id.split(".")
                     cur_scaf = seq_features[1]
                     cur_start = int(seq_features[2])
                     cur_end = int(seq_features[3])
@@ -822,6 +827,7 @@ def slide_baby_slide(maf_scaf_dic, outdir, inspecies, outspecies, window_size, w
                     if cur_strand == "-":
                         cur_seq = str(Seq.Seq(cur_seq).reverse_complement())
                     ncar_file_dic[rec_id[0:4]].write(">%s\n%s\n" % (rec_id, cur_seq))
+                    seqfile.write(">%s\n%s\n" % (rec_id, cur_seq))
                 seqfile.close()
                 outfile.write("%s\t%s\t%s\t%s\n" % (cur_locus, ncar_index, len(trimal_dic.keys()), ",".join(trimal_dic.keys())))
                 ncar_index += 1
@@ -1192,7 +1198,10 @@ def mask_unaligned_genomes(genome_seqs, gff_dir):
     for species, seq_dic in genome_seqs.items():
         reader = open("%s/%s.gff" % (gff_dir, species), 'rU')
         cds_tuples = {}
+        print species
         for line in reader:
+            if "#" in line:
+                continue
             cur_line = line.split()
             cur_type = cur_line[2]
             if cur_type != "CDS":
@@ -1204,6 +1213,8 @@ def mask_unaligned_genomes(genome_seqs, gff_dir):
                 cds_tuples[cur_scaf] = []
             cds_tuples[cur_scaf].append((cur_start, cur_end))
         for scaf, cds_list in cds_tuples.items():
+            if masked_genomes[species].get(scaf, None) == None:
+                continue
             scaf_seq = masked_genomes[species][scaf]
             scaf_seq_list = list(scaf_seq)
             for cds_coords in cds_list:
